@@ -32,16 +32,51 @@ namespace
 
     std::string BlanksRemoval(const std::string& expression_)
     {
-        std::string new_expression = std::move(expression_);
+        std::string new_expression = expression_;
         new_expression.erase(std::remove(new_expression.begin(), new_expression.end(), ' '), new_expression.end());
         return new_expression;
     }
+
+    bool IsOperator(const char symbol_)
+    {
+        const std::string operators = "+-*%/!^";
+        return operators.find(symbol_) != std::string::npos;
+    }
+
+    bool IsFunction(const std::string& func_)
+    {
+        std::unordered_set<std::string> functions =
+        {
+            "sin", "cos", "tan",
+            "asin", "acos", "atan",
+            "log", "log2", "log10",
+            "sqrt", "exp", "abs"
+        };
+        return functions.find(func_) != functions.end();
+    }
+
+    bool IsBrackets(const char symbol_)
+    {
+        return symbol_ == '(' || symbol_ == ')';
+    }
+
+    bool IsDigitOrDot(char symbol_)
+    {
+        return std::isdigit(symbol_) || symbol_ == '.';
+    }
+
+    bool IsConstant(const std::string& constant_)
+    {
+        std::unordered_set<std::string> constants = { "PI", "E", "PHI" };
+        return constants.find(constant_) != constants.end();
+    }
+
 
 } // end namespace
 
 enum class TokenType
 {
-    Number, // целые или числа с плавающей точкой
+    Number, // целые, с плавающей точкой и константные числа
     Operator, // + - * % / ! ^
     Function, // sin cos tan asin acos atan sqrt log log2 log10 exp abs
     Brackets, // ( )
@@ -64,9 +99,9 @@ struct Token
 
 class Tokenize
 {
-    public:
+public:
 
-    Tokenize(std::string& expression_) : expression(expression_) 
+    Tokenize(std::string& expression_) : expression(expression_)
     {
         BreakingIntoTokens();
     }
@@ -81,7 +116,7 @@ class Tokenize
         return expression;
     }
 
-    private:
+private:
 
     void BreakingIntoTokens()
     {
@@ -89,110 +124,150 @@ class Tokenize
 
         for (size_t i = 0; i < expression.size(); ++i)
         {
-            char ch = expression[i];
+            char symbol = expression[i];
 
-            if (std::isdigit(ch) || ch == '.')
+            if (IsDigitOrDot(symbol) || IsConstant(current_token + symbol))
             {
-                current_token += ch;
+                current_token += symbol;
             }
-            else if (IsOperator(ch))
+            else if (IsOperator(symbol))
             {
-                if (!current_token.empty())
-                {
-                    Token token;
-                    token.type = TokenType::Number;
-                    token.token = current_token;
-                    tokens.push_back(token);
-                    current_token = "";
-                }
-
-                if (ch == '-' && (i == 0 || expression[i + 1] == '(' || IsOperator(expression[i - 1]))) // отдельно обрабатываем унарное отрицание, заменяя токен
-                {
-                    Token token;
-                    token.type = TokenType::Operator;
-                    token.token = "~";
-                    token.associativity = AssociativityOperator('~');
-                    tokens.push_back(token);
-                }
-                else
-                {
-                    Token token;
-                    token.type = TokenType::Operator;
-                    token.token = ch;
-                    token.associativity = AssociativityOperator(ch);
-                    tokens.push_back(token);
-                }
+                ProcessOperator(symbol, current_token, i);
             }
-            else if (IsBrackets(ch))
+            else if (IsBrackets(symbol))
             {
-                if (!current_token.empty())
-                {
-                    Token token;
-                    token.type = TokenType::Number;
-                    token.token = current_token;
-                    tokens.push_back(token);
-                    current_token = "";
-                }
-
-                Token token;
-                token.type = TokenType::Brackets;
-                token.token = ch;
-                tokens.push_back(token);
+                ProcessBracket(symbol, current_token);
             }
-            else if (std::isalpha(ch) || std::isdigit(ch))
-            {   
-                current_token += ch;
-
-                if (i + 1 < expression.size() && expression[i + 1] == '(')
-                {
-                    Token token;
-                    token.type = TokenType::Function;
-                    token.token = current_token;
-                    tokens.push_back(token);
-                    current_token = "";
-                }
+            else if (std::isalnum(symbol))
+            {
+                ProcessFunction(symbol, current_token, i);
             }
             else
             {
-                throw std::runtime_error("Unknown character in expression: " + std::string(1, ch));
+                throw std::runtime_error("Unknown character in expression: " + std::string(1, symbol));
             }
         }
 
+        AddRemainingToken(current_token);
+
         if (!current_token.empty())
         {
-            Token token;
-            token.type = TokenType::Number;
-            token.token = current_token;
-            tokens.push_back(token);
+            throw std::runtime_error("Unknown token in expression: " + current_token);
         }
     }
 
-    int OperatorPriorities(char op_) const
+    void ProcessOperator(char symbol_, std::string& current_token_, size_t i)
     {
-        static std::unordered_map<char, int> operator_priorities = 
+        if (!current_token_.empty())
         {
-            {'+', 1},
-            {'-', 1},
-            {'*', 2},
-            {'/', 2},
-            {'%', 2},
-            {'~', 3},
-            {'^', 4},
-            {'!', 5}
-        };
-
-        auto it = operator_priorities.find(op_);
-        if (it != operator_priorities.end())
-        {
-            return it->second;
+            AddNumberToken(current_token_);
         }
 
-        return -1;
-    }  
+        if (symbol_ == '-' && (i == 0 || expression[i - 1] == '(' || IsOperator(expression[i - 1])))
+        {
+            AddUnaryMinusToken();
+        }
+        else
+        {
+            AddOperatorToken(symbol_);
+        }
+    }
+
+    void ProcessBracket(char symbol_, std::string& current_token_)
+    {
+        if (!current_token_.empty())
+        {
+            AddNumberToken(current_token_);
+        }
+
+        AddBracketToken(symbol_);
+    }
+
+    void ProcessFunction(char symbol_, std::string& current_token_, size_t i)
+    {
+        current_token_ += symbol_;
+
+        if (i + 1 < expression.size() && expression[i + 1] == '(')
+        {
+            if (IsFunction(current_token_))
+            {
+                AddFunctionToken(current_token_);
+                current_token_ = "";
+            }
+            else if (IsConstant(current_token_))
+            {
+                AddConstantToken(current_token_);
+                current_token_ = "";
+            }
+            else
+            {
+                throw std::runtime_error("Unknown function in expression: " + current_token_);
+            }
+        }
+    }
+
+    void AddNumberToken(std::string& current_token_)
+    {
+        Token token;
+        token.type = TokenType::Number;
+        token.token = current_token_;
+        tokens.push_back(token);
+        current_token_ = "";
+    }
+
+    void AddUnaryMinusToken()
+    {
+        Token token;
+        token.type = TokenType::Operator;
+        token.token = "~";
+        token.associativity = AssociativityOperator('~');
+        tokens.push_back(token);
+    }
+
+    void AddOperatorToken(char symbol_)
+    {
+        Token token;
+        token.type = TokenType::Operator;
+        token.token = symbol_;
+        token.associativity = AssociativityOperator(symbol_);
+        tokens.push_back(token);
+    }
+
+    void AddBracketToken(char symbol_)
+    {
+        Token token;
+        token.type = TokenType::Brackets;
+        token.token = symbol_;
+        tokens.push_back(token);
+    }
+
+    void AddFunctionToken(const std::string& current_token_)
+    {
+        Token token;
+        token.type = TokenType::Function;
+        token.token = current_token_;
+        tokens.push_back(token);
+    }
+
+    void AddConstantToken(const std::string& current_token_)
+    {
+        Token token;
+        token.type = TokenType::Number;
+        token.token = current_token_;
+        tokens.push_back(token);
+    }
+
+    void AddRemainingToken(std::string& current_token_)
+    {
+        if (!current_token_.empty())
+        {
+            AddNumberToken(current_token_);
+        }
+    }
 
     OperatorAssociativity AssociativityOperator(char op_) const
     {
-        static std::unordered_map<char, OperatorAssociativity> operator_associativity = 
+        static std::unordered_map<char, OperatorAssociativity> operator_associativity =
         {
             {'+', OperatorAssociativity::Left},
             {'-', OperatorAssociativity::Left},
@@ -213,28 +288,7 @@ class Tokenize
         return OperatorAssociativity::None;
     }
 
-    bool IsOperator(const char symbol_) const
-    {
-        const std::string operators = "+-*%/!^";
-        return operators.find(symbol_) != std::string::npos;
-    }
-
-    bool IsFunction(const std::string& func_) const
-    {
-        std::unordered_set<std::string> functions = 
-        {
-            "sin", "cos", "tan",
-            "asin", "acos", "atan",
-            "log", "log2", "log10",
-            "sqrt", "exp", "abs"
-        };
-        return functions.find(func_) != functions.end();
-    }
-
-    bool IsBrackets(const char symbol_)
-    {
-        return symbol_ == '(' || symbol_ == ')';
-    }
+private:
 
     std::vector<Token> tokens = {};
     std::string expression = "";

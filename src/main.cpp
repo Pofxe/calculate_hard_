@@ -1,15 +1,33 @@
 #include <iostream>
-#include "Token.h"
+#include "Calculate.h"
 
-int main()
+int main(int argc, char* argv[])
 {
-    std::string expression = "3 + 4 * (2 - 1) + -3 ^ 2 ^ 3 + log10(2) + 3.14";
-    Tokenize tokenizer = Build(expression);
-    std::vector<Token> tokens = tokenizer.GetTokens();
-
-    std::cout << "Expression: " << tokenizer.GetExpression() << std::endl;
-    for (const auto& token : tokens)
+    if (argc < 2)
     {
-        std::cout << "Token: " << token.token << ", Type: " << static_cast<int>(token.type) << " Associativity: " << static_cast<int>(token.associativity) << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <expression>" << std::endl;
+        return 1;
     }
+
+    try
+    {
+        std::string expression = argv[1];
+
+        Tokenize tokenizer = Build(expression);
+        std::vector<Token> tokens = tokenizer.GetTokens();
+
+        Sorter sorter(tokens);
+        std::vector<Token> rpn_tokens = sorter.GetSortedTokens();
+
+        CalculateExpr calculator(rpn_tokens);
+        double result = calculator.GetResponse();
+
+        std::cout << "Result: " << result << std::endl;
+    }
+    catch (const std::runtime_error& e)
+    {
+        std::cerr << e.what() << std::endl;
+    }
+
+    return 0;
 }
